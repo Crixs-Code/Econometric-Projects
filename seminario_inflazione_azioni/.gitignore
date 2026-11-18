@@ -1,0 +1,13 @@
+# Documenti compilati (si rigenerano dagli Rmd)
+*.html
+*_files/
+*_cache/
+
+# Figure e tabelle prodotte da R/02_analisi.R
+output/
+Rplots.pdf
+
+# Dati scaricati da R/01_dati.R: non versionati perché il repository è
+# pubblico e alcune serie (es. il sondaggio dell'Università del Michigan)
+# sono protette da copyright
+data/

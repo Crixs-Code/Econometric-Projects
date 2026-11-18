@@ -1,0 +1,446 @@
+---
+title: "Le azioni proteggono dall'inflazione?"
+subtitle: "Seminario di econometria finanziaria: una lezione con dati pubblici e R"
+lang: it
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: kable
+    math_method: mathml
+    code_folding: show
+    fig_width: 8
+    fig_height: 5
+---
+
+```{r init, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", dpi = 150)
+SALVA_OUTPUT <- FALSE                 # la lezione non scrive in output/
+knitr::read_chunk("R/02_analisi.R")   # i blocchi di codice vengono dallo script
+mese_it <- function(x) paste(c("gennaio", "febbraio", "marzo", "aprile", "maggio",
+                               "giugno", "luglio", "agosto", "settembre", "ottobre",
+                               "novembre", "dicembre")[as.integer(format(x, "%m"))],
+                             format(x, "%Y"))
+```
+
+```{r setup, include = FALSE}
+```
+
+```{r dati, include = FALSE}
+```
+
+```{r fig-motivazione, include = FALSE}
+```
+
+# Obiettivi della lezione {-}
+
+Alla fine della lezione lo studente sa:
+
+1. tradurre una domanda finanziaria ("le azioni proteggono dall'inflazione?") in
+   un modello di regressione con ipotesi verificabili;
+2. distinguere la componente **attesa** da quella **inattesa** di una variabile
+   macroeconomica, e capire che la prima non si osserva: va misurata;
+3. usare errori standard **robusti a eteroschedasticità e autocorrelazione**
+   (Newey-West) e un test di Wald su più vincoli;
+4. riconoscere un coefficiente **instabile nel tempo** e verificarlo
+   formalmente;
+5. leggere un risultato alla luce di una **variabile omessa** (l'ipotesi "proxy"
+   di Fama);
+6. valutare **fuori campione** se una stima storica serve a qualcosa.
+
+*Prerequisiti:* regressione lineare, test t e F, nozioni di base di R.
+*Durata:* 60-90 minuti (la scaletta è nel `README.md`).
+*Dati:* solo fonti pubbliche, scaricate con due pacchetti R (`frenchdata` e
+`quantmod`).
+
+# La domanda
+
+Nel 2022 l'inflazione USA ha superato il 9% su base annua, il valore più alto
+dagli anni Ottanta. Un'idea molto diffusa è che le azioni siano una buona
+protezione: rappresentano diritti su attività reali (impianti, marchi, scorte),
+quindi i loro prezzi dovrebbero salire con il livello generale dei prezzi. Nel
+2022, però, il mercato azionario USA ha perso il
+`r f1(abs(annuale$R_reale[annuale$anno == 2022]))`% in termini reali.
+
+```{r mostra-motivazione, echo = FALSE}
+p_motivazione
+```
+
+La figura mostra un fatto stilizzato noto da cinquant'anni (Bodie, 1976; Nelson,
+1976; Fama e Schwert, 1977): negli anni di inflazione alta i rendimenti reali
+delle azioni tendono a essere più bassi. La correlazione tra rendimento reale e
+inflazione, su `r nrow(annuale)` anni, è `r f2(cor_annua)`. Il 2021 mostra però
+che la regola ha eccezioni.
+
+La correlazione non basta per rispondere alla domanda: l'inflazione è in parte
+**prevista** dagli investitori e in parte è una **sorpresa**, e le due
+componenti possono avere effetti diversi. Serve un modello.
+
+# Il modello di Fama e Schwert
+
+## L'ipotesi di Fisher applicata alle azioni
+
+Fisher (1930) sostiene che i rendimenti nominali attesi incorporano
+l'inflazione attesa uno a uno, lasciando invariato il rendimento reale. Per un
+titolo che protegge completamente dall'inflazione, inoltre, anche le sorprese
+inflazionistiche dovrebbero tradursi uno a uno in rendimenti nominali più alti.
+
+Fama e Schwert (1977) traducono le due idee in una regressione:
+
+$$
+R_t = \alpha + \beta \, E_{t-1}[\pi_t] + \gamma \, \big(\pi_t - E_{t-1}[\pi_t]\big) + \varepsilon_t
+$$
+
+- $R_t$: rendimento nominale del mercato azionario nel mese $t$;
+- $\pi_t$: inflazione del mese $t$;
+- $E_{t-1}[\pi_t]$: inflazione attesa con l'informazione disponibile a fine
+  mese $t-1$;
+- $\pi_t - E_{t-1}[\pi_t]$: inflazione **inattesa**.
+
+| Ipotesi | Vincolo | Significato |
+|---|---|---|
+| Protezione dall'inflazione attesa | $\beta = 1$ | il rendimento atteso sale con l'inflazione attesa |
+| Protezione dall'inflazione inattesa | $\gamma = 1$ | una sorpresa sui prezzi si riflette subito nei corsi |
+| Copertura completa | $\beta = \gamma = 1$ | test di Wald congiunto |
+| Nessuna relazione | $\beta = \gamma = 0$ | le azioni ignorano l'inflazione |
+
+**Il punto delicato:** $E_{t-1}[\pi_t]$ non si osserva. Ogni stima del modello
+dipende da come la si misura.
+
+# I dati
+
+Tutti i dati sono pubblici e si scaricano con due pacchetti R. Lo script
+`R/01_dati.R` li scarica e ne salva una copia in `data/`, così la lezione resta
+riproducibile anche quando le fonti rivedono le serie.
+
+| Variabile | Fonte | Pacchetto R | Serie |
+|---|---|---|---|
+| Rendimento del mercato USA | Kenneth R. French Data Library | `frenchdata` | `Fama/French 3 Factors` (Mkt-RF + RF) |
+| Tasso del T-bill a un mese | Kenneth R. French Data Library | `frenchdata` | `Fama/French 3 Factors` (RF) |
+| 12 portafogli settoriali | Kenneth R. French Data Library | `frenchdata` | `12 Industry Portfolios` |
+| Prezzi al consumo (CPI-U) | FRED | `quantmod` | `CPIAUCSL` |
+| Inflazione attesa, sondaggio | FRED (Università del Michigan) | `quantmod` | `MICH` |
+| Produzione industriale | FRED | `quantmod` | `INDPRO` |
+
+Il cuore di `R/01_dati.R` sono poche righe:
+
+```{r scarica, eval = FALSE}
+library(frenchdata)
+library(quantmod)     # serve la versione >= 0.4.29
+
+ff3   <- download_french_data("Fama/French 3 Factors")
+ind12 <- download_french_data("12 Industry Portfolios")
+cpi   <- getSymbols("CPIAUCSL", src = "FRED", auto.assign = FALSE)
+mich  <- getSymbols("MICH",     src = "FRED", auto.assign = FALSE)
+```
+
+La lezione legge lo snapshot e costruisce le variabili:
+
+```{r mostra-dati, ref.label = "dati", eval = FALSE}
+```
+
+```{r leggimi, echo = FALSE, comment = ""}
+cat(readLines("data/LEGGIMI_dati.txt")[1], "\n")
+```
+
+**Un problema reale dei dati.** Il CPI di
+`r mese_it(mesi_imputati)` non è mai stato pubblicato, perché il
+governo federale USA era chiuso. Senza correzione, la variazione di due mesi
+verrebbe attribuita a un solo mese. Lo script interpola il livello dei prezzi
+in modo geometrico, cioè divide la variazione in parti uguali tra i due mesi.
+
+# Misurare l'inflazione attesa
+
+Usiamo tre misure, tutte disponibili alla fine del mese precedente.
+
+1. **Tasso del T-bill a un mese** (Fama, 1975). Se il tasso d'interesse reale
+   è costante, il tasso nominale a un mese è l'inflazione attesa più una
+   costante, e la costante finisce nell'intercetta della regressione.
+2. **Modello AR(3) ricorsivo.** Si prevede l'inflazione con i suoi tre valori
+   passati. I coefficienti si stimano ogni mese con i soli dati disponibili
+   fino a quel momento (finestra crescente), così la previsione non usa il
+   futuro.
+3. **Sondaggio dell'Università del Michigan.** Le famiglie dichiarano
+   l'inflazione che si aspettano nei 12 mesi successivi. Dividendo per 12 si
+   ottiene una stima mensile. È disponibile solo dal 1978.
+
+```{r misure-attese}
+```
+
+Il campione della lezione va da `r mese_it(min(campione$date))` a
+`r mese_it(max(campione$date))` (`r nrow(campione)` mesi) e parte dal 1953 come
+quello di Fama e Schwert (1977).
+
+```{r fig-misure, echo = FALSE, fig.height = 7}
+```
+
+Una buona misura deve **prevedere bene** l'inflazione. La tabella confronta le
+tre misure sul campione comune (dal 1978) con due criteri:
+
+- errore medio e RMSE;
+- regressione di **Mincer e Zarnowitz** (1969), $\pi_t = a + b \, E_{t-1}[\pi_t] + u_t$,
+  in cui una previsione corretta ha $a = 0$ e $b = 1$.
+
+```{r tab-misure}
+```
+
+- Il **T-bill** ha la pendenza più lontana da 1: per lunghi periodi (2009-2015,
+  2020-2022) il tasso era fermo a zero mentre l'inflazione si muoveva. L'ipotesi
+  di tasso reale costante non regge.
+- Il **modello AR(3)** è il più preciso su questo orizzonte di un mese e non
+  rifiuta $a = 0, b = 1$.
+- Il **sondaggio Michigan** ha una pendenza superiore a 1 ed è meno preciso del
+  modello AR su base mensile. Ang, Bekaert e Wei (2007) trovano invece che i
+  sondaggi battono i modelli statistici: loro però prevedono l'inflazione su
+  orizzonti trimestrali e annuali, e il nostro confronto mensile dà un vantaggio
+  ai modelli che usano i dati dell'ultimo mese. Il modello AR, inoltre, usa i
+  dati rivisti e non quelli disponibili in tempo reale: è un vantaggio che
+  nessun investitore aveva. (Esercizio 4.)
+
+**Messaggio:** misure diverse dell'inflazione attesa sono misure diverse,
+ciascuna con il proprio errore, della stessa variabile non osservata. È lo
+stesso problema dei rating ESG rumorosi, in un contesto in cui i dati sono
+pubblici.
+
+# Stima del modello
+
+## Errori standard robusti
+
+I rendimenti mensili hanno varianza che cambia nel tempo e residui che possono
+essere correlati da un mese all'altro. Gli errori standard OLS classici sono
+allora sbagliati. Usiamo la matrice di covarianza di **Newey e West (1987)**,
+robusta a eteroschedasticità e autocorrelazione fino a 12 mesi. Il test di
+copertura completa è un test di Wald su due vincoli con la stessa matrice.
+
+```{r stima-fs}
+```
+
+Tra parentesi gli errori standard di Newey-West.
+
+```{r fig-coefficienti, echo = FALSE, fig.height = 4.5}
+```
+
+## Lettura dei risultati
+
+- Su tutto il campione `r tab_fs$Campione[1]` le stime di $\beta$ e $\gamma$ sono
+  **negative** (circa `r f2(tab_fs$beta[1])` e `r f2(tab_fs$gamma[1])` con il
+  T-bill). Il segno è l'opposto di quello previsto dall'ipotesi di Fisher.
+- La **copertura completa** ($\beta = \gamma = 1$) è **rifiutata** (p =
+  `r fp(tab_fs$p_copertura[1])`), sia con il T-bill sia con il modello AR.
+- Dal 1978 in poi le stime sono più vicine a zero e molto imprecise: con il
+  sondaggio Michigan non si rifiuta né la copertura completa (p =
+  `r fp(tab_fs$p_copertura[4])`) né l'assenza di relazione. Con
+  `r nrow(comune)` mesi di dati e rendimenti così variabili, i test hanno poca
+  potenza.
+- L'$R^2$ è circa l'1%: l'inflazione spiega una parte minima della variabilità
+  dei rendimenti mensili. Non è un difetto del modello: i rendimenti azionari
+  sono dominati dalle notizie, e l'inflazione è solo una di esse.
+
+La risposta, in breve: **le azioni non sono una protezione affidabile
+dall'inflazione**, e su tutto il periodo si sono comportate al contrario.
+
+# Una relazione instabile
+
+Il risultato su tutto il campione nasconde una sorpresa. Stimiamo il modello su
+tre periodi, con l'inflazione attesa del modello AR(3).
+
+```{r sottocampioni}
+```
+
+- **1953-1999:** $\gamma$ è fortemente negativo e significativo: ogni 0,1
+  punti percentuali di inflazione mensile inattesa si associano a un rendimento
+  del mese più basso di circa `r f2(abs(tab_sotto$gamma[1]) / 10)` punti.
+- **2000-2020:** $\gamma$ diventa **positivo** (non significativo).
+- **Dal 2021:** le stime sono troppo imprecise per concludere qualcosa
+  (`r tab_sotto$N[3]` mesi).
+
+## Test formale
+
+Per verificare la rottura del 2000 si aggiunge una variabile dummy
+$D_t = 1$ dal gennaio 2000 e la si interagisce con tutti i regressori. Il
+coefficiente dell'interazione con l'inflazione inattesa
+$UI_t = \pi_t - E_{t-1}[\pi_t]$ misura di quanto è cambiato $\gamma$.
+
+$$
+R_t = \alpha + \beta \, E_{t-1}[\pi_t] + \gamma \, UI_t
+      + D_t \big(\alpha' + \beta' \, E_{t-1}[\pi_t] + \gamma' \, UI_t\big) + \varepsilon_t
+$$
+
+```{r test-rottura}
+```
+
+L'aumento di $\gamma$ dal 2000 è di `r f2(ct_rottura["inattesa:dopo2000", 1])`
+ed è significativo (p = `r fp(ct_rottura["inattesa:dopo2000", 4])`).
+Attenzione: la data del 2000 viene dalla letteratura e dal grafico che segue.
+Scegliere la data guardando i dati e poi testarla con un test standard ne
+gonfia la significatività. Il test di Andrews (1993), che cerca la data di
+rottura senza fissarla prima, è nell'esercizio 6.
+
+## Stime su finestre mobili
+
+```{r fig-rolling, echo = FALSE}
+```
+
+La stima su finestre di 10 anni mostra un $\gamma$ negativo per tutta la
+seconda metà del Novecento, che si avvicina a zero intorno al 2000 e poi
+diventa positivo.
+
+**Perché?** Boons, Duarte, de Roon e Szymanowska (2020) mostrano che il segno
+dipende da che cosa l'inflazione segnala sulla crescita reale futura:
+
+- per gran parte del Novecento un'inflazione più alta annunciava una crescita
+  più bassa (si pensi agli shock petroliferi degli anni Settanta): era una
+  **cattiva notizia** per le azioni;
+- nei primi anni Duemila il legame si è invertito: un'inflazione più alta
+  accompagnava una crescita più forte, quindi era una **buona notizia**.
+
+Cieslak e Pflueger (2023) parlano di inflazione "buona", spinta dalla domanda,
+e "cattiva", spinta da shock di offerta. Nel 2021-22 gli shock di offerta
+(energia, catene di fornitura) hanno avuto un ruolo importante.
+
+# Perché il segno negativo? L'ipotesi proxy
+
+Fama (1981) propone una spiegazione: la relazione negativa è **spuria**.
+L'inflazione alta si accompagna a una crescita reale futura più bassa, e sono
+le prospettive di crescita a muovere i prezzi delle azioni. In termini
+econometrici è un problema di **variabile omessa**: se la crescita futura
+$g_{t,t+12}$ influenza i rendimenti ed è correlata con l'inflazione, la sua
+omissione distorce $\beta$ e $\gamma$.
+
+Aggiungiamo al modello la crescita della produzione industriale nei 12 mesi
+successivi.
+
+```{r proxy}
+```
+
+- Il coefficiente della crescita futura è positivo e molto significativo.
+- Il coefficiente dell'inflazione attesa passa da
+  `r f2(coef(m_base)["attesa"])` a `r f2(coef(m_proxy)["attesa"])`, cioè
+  praticamente a zero.
+- Quello dell'inflazione inattesa si riduce meno, da
+  `r f2(coef(m_base)["inattesa"])` a `r f2(coef(m_proxy)["inattesa"])`.
+
+Gran parte della relazione negativa con l'inflazione attesa dipende quindi da
+ciò che l'inflazione dice sulla crescita futura. Va notato che la crescita
+futura non è nota al momento dell'investimento: questa regressione aiuta a
+**spiegare** la relazione, non a costruire una strategia di investimento.
+
+# Settori e la prova del 2021-22
+
+Il mercato nel suo insieme non protegge dall'inflazione, ma alcuni settori
+potrebbero farlo. Stimiamo $\gamma$ per ciascuno dei 12 settori di Ken French
+**fino al 2020**, poi guardiamo i rendimenti reali del **2021-22**. È una
+verifica fuori campione: le stime usano solo dati precedenti all'episodio.
+
+```{r industrie}
+```
+
+Nel 2021-22 l'inflazione cumulata è stata del `r f1(infl_cum)`% e il mercato
+nel suo insieme ha perso il `r f1(abs(mercato_2021_22))`% in termini reali.
+
+```{r tab-industrie, echo = FALSE}
+tab_ind |>
+  transmute(Settore,
+            `gamma 1953-2020` = f2(gamma),
+            `Errore std. HAC` = f2(se),
+            `Rendimento reale 2021-22 (%)` = f1(reale_2021_22))
+```
+
+```{r fig-industrie, echo = FALSE}
+```
+
+- **L'energia** è l'unico settore con $\gamma$ positivo nel passato
+  (`r f2(tab_ind$gamma[tab_ind$codice == "Enrgy"])`, non significativo) ed è
+  stato di gran lunga il migliore nel 2021-22
+  (`r f1(tab_ind$reale_2021_22[tab_ind$codice == "Enrgy"])`% reale).
+- La correlazione tra $\gamma$ storico e rendimento 2021-22 è alta se misurata
+  con Pearson (`r f2(cor_ind[["pearson"]])`), ma con Spearman, che usa i ranghi,
+  è solo `r f2(cor_ind[["spearman"]])`. Senza l'energia, Spearman scende a
+  `r f2(cor_ind[["spearman_senza_energia"]])`.
+- Lezione di metodo: **un'osservazione estrema** può costruire da sola una
+  correlazione. Fuori dall'energia, la sensibilità storica all'inflazione non
+  ha detto nulla su chi avrebbe retto meglio nel 2021-22.
+
+# Cosa portare a casa {-}
+
+1. Su oltre settant'anni di dati USA le azioni **non** hanno protetto
+   dall'inflazione: i coefficienti stimati sono negativi e la copertura
+   completa è rifiutata.
+2. L'inflazione attesa non si osserva: misure diverse (tassi, modelli,
+   sondaggi) danno risultati diversi. La scelta della misura è parte del
+   modello.
+3. La relazione **cambia segno nel tempo**. Conta che cosa l'inflazione segnala
+   sull'economia reale: inflazione "cattiva" da offerta o "buona" da domanda.
+4. Il segno negativo dipende in buona parte da una **variabile omessa**, la
+   crescita reale futura (Fama, 1981).
+5. Una stima storica va sempre messa alla prova **fuori campione**, e una
+   correlazione va controllata contro le osservazioni estreme.
+
+# Esercizi {-}
+
+Le soluzioni sono in `R/03_soluzioni_esercizi.R`.
+
+1. **Replica storica.** Stimate il modello con il T-bill sul campione
+   originale di Fama e Schwert (1953-1971). Trovate gli stessi segni?
+2. **Ordine del modello AR.** Ripetete la stima principale con previsioni
+   AR(1), AR(6) e AR(12). Quanto sono sensibili $\beta$ e $\gamma$?
+3. **Inflazione di fondo.** Sostituite il CPI con il CPI al netto di alimentari
+   ed energia (`cpi_core`, dal 1957). La relazione cambia? Perché ci si può
+   aspettare che cambi?
+4. **Orizzonte annuale.** Il sondaggio Michigan riguarda i 12 mesi successivi.
+   Costruite rendimenti e inflazione annuali (gennaio-dicembre) e usate come
+   inflazione attesa il valore del sondaggio di dicembre dell'anno precedente.
+   Il sondaggio prevede meglio del T-bill su questo orizzonte?
+5. **Area euro.** Con i fattori europei di Ken French (in dollari), il cambio
+   dollaro/euro e l'HICP dell'area euro, stimate la relazione tra rendimenti
+   azionari in euro e inflazione su orizzonti di 12 mesi dal 2000. Perché
+   servono errori standard HAC con un ritardo di almeno 12 mesi?
+6. **Rottura con data ignota.** Usate `strucchange::Fstats()` e `sctest()` per
+   il test sup-F di Andrews (1993) sul modello principale. In che data cade la
+   rottura stimata? Perché può differire dal 2000?
+
+# Riferimenti {-}
+
+**Lavori fondamentali**
+
+- Bodie, Z. (1976). Common stocks as a hedge against inflation. *Journal of
+  Finance*, 31(2), 459-470.
+- Fama, E. F. (1975). Short-term interest rates as predictors of inflation.
+  *American Economic Review*, 65(3), 269-282.
+- Fama, E. F. (1981). Stock returns, real activity, inflation, and money.
+  *American Economic Review*, 71(4), 545-565.
+- Fama, E. F., & Schwert, G. W. (1977). Asset returns and inflation. *Journal
+  of Financial Economics*, 5(2), 115-146.
+- Fisher, I. (1930). *The Theory of Interest*. Macmillan.
+- Nelson, C. R. (1976). Inflation and rates of return on common stocks.
+  *Journal of Finance*, 31(2), 471-483.
+
+**Sviluppi recenti**
+
+- Boons, M., Duarte, F., de Roon, F., & Szymanowska, M. (2020). Time-varying
+  inflation risk and stock returns. *Journal of Financial Economics*, 136(2),
+  444-470.
+- Cieslak, A., & Pflueger, C. (2023). Inflation and asset returns. *Annual
+  Review of Financial Economics*, 15, 433-448.
+
+**Metodi**
+
+- Andrews, D. W. K. (1993). Tests for parameter instability and structural
+  change with unknown change point. *Econometrica*, 61(4), 821-856.
+- Ang, A., Bekaert, G., & Wei, M. (2007). Do macro variables, asset markets, or
+  surveys forecast inflation better? *Journal of Monetary Economics*, 54(4),
+  1163-1212.
+- Mincer, J., & Zarnowitz, V. (1969). The evaluation of economic forecasts. In
+  J. Mincer (Ed.), *Economic Forecasts and Expectations*. NBER.
+- Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite,
+  heteroskedasticity and autocorrelation consistent covariance matrix.
+  *Econometrica*, 55(3), 703-708.
+
+**Dati**
+
+- Kenneth R. French Data Library,
+  <https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html>.
+- FRED, Federal Reserve Bank of St. Louis, <https://fred.stlouisfed.org>.
+- University of Michigan, Surveys of Consumers (serie `MICH` su FRED).

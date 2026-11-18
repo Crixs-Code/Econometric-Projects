@@ -1,0 +1,219 @@
+---
+title: "Le azioni proteggono dall'inflazione?"
+subtitle: "Seminario di econometria finanziaria"
+lang: it
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+    df_print: kable
+---
+
+```{r init, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 10, fig.height = 4.9,
+                      out.width = "100%", dpi = 150)
+SALVA_OUTPUT <- FALSE
+knitr::read_chunk("R/02_analisi.R")
+mese_it <- function(x) paste(c("gennaio", "febbraio", "marzo", "aprile", "maggio",
+                               "giugno", "luglio", "agosto", "settembre", "ottobre",
+                               "novembre", "dicembre")[as.integer(format(x, "%m"))],
+                             format(x, "%Y"))
+```
+
+```{r setup, include = FALSE}
+```
+
+```{r dati, include = FALSE}
+```
+
+```{r misure-attese, include = FALSE}
+```
+
+```{r fig-motivazione, include = FALSE}
+```
+
+```{r tab-misure, include = FALSE}
+```
+
+```{r fig-misure, include = FALSE}
+```
+
+```{r stima-fs, include = FALSE}
+```
+
+```{r fig-coefficienti, include = FALSE}
+```
+
+```{r sottocampioni, include = FALSE}
+```
+
+```{r fig-rolling, include = FALSE}
+```
+
+```{r proxy, include = FALSE}
+```
+
+```{r industrie, include = FALSE}
+```
+
+```{r fig-industrie, include = FALSE}
+```
+
+## La domanda
+
+- 2022: inflazione USA oltre il 9% su base annua, massimo dagli anni Ottanta.
+- Idea diffusa: le azioni sono diritti su attività reali, quindi proteggono
+  dall'inflazione.
+- Nel 2022 il mercato USA ha perso il
+  `r f1(abs(annuale$R_reale[annuale$anno == 2022]))`% in termini reali.
+
+**Le azioni proteggono davvero dall'inflazione? Come lo verifichiamo con i
+dati?**
+
+## Il fatto stilizzato
+
+```{r}
+p_motivazione
+```
+
+## Il modello di Fama e Schwert (1977)
+
+<div style="text-align:center; font-size:150%; margin: 0.6em 0 0.8em;">
+R<sub>t</sub> = α + β · E<sub>t−1</sub>[π<sub>t</sub>] + γ · (π<sub>t</sub> − E<sub>t−1</sub>[π<sub>t</sub>]) + ε<sub>t</sub>
+</div>
+
+| Ipotesi | Vincolo |
+|---|---|
+| Protezione dall'inflazione attesa (Fisher) | β = 1 |
+| Protezione dall'inflazione inattesa | γ = 1 |
+| Copertura completa | β = γ = 1 (test di Wald) |
+
+<br>
+
+**Il punto delicato:** l'inflazione attesa E<sub>t−1</sub>[π<sub>t</sub>] non si osserva.
+Va misurata.
+
+## I dati: due pacchetti R, solo fonti pubbliche
+
+| Dato | Pacchetto | Fonte |
+|---|---|---|
+| Rendimento del mercato USA e T-bill | `frenchdata` | Ken French Data Library |
+| 12 portafogli settoriali | `frenchdata` | Ken French Data Library |
+| CPI, sondaggio Michigan, produzione industriale | `quantmod` | FRED |
+
+```r
+ff3  <- frenchdata::download_french_data("Fama/French 3 Factors")
+cpi  <- quantmod::getSymbols("CPIAUCSL", src = "FRED", auto.assign = FALSE)
+```
+
+- Campione: `r mese_it(min(campione$date))` - `r mese_it(max(campione$date))`,
+  `r nrow(campione)` mesi.
+- Dati reali, problemi reali: il CPI di `r mese_it(mesi_imputati)` non è mai
+  stato pubblicato (chiusura del governo USA) e va ricostruito.
+
+## Tre misure dell'inflazione attesa
+
+```{r}
+p_misure + facet_wrap(~ misura, ncol = 3) +
+  scale_x_date(breaks = as.Date(c("1960-01-01", "1990-01-01", "2020-01-01")),
+               date_labels = "%Y")
+```
+
+## Quale misura prevede meglio? (1978-2026)
+
+```{r}
+tab_misure |>
+  mutate(across(c(`Errore medio`, RMSE, `Pendenza MZ`), f3),
+         `p (a=0, b=1)` = fp(`p (a=0, b=1)`))
+```
+
+- Regressione di Mincer e Zarnowitz: π<sub>t</sub> = a + b · E<sub>t−1</sub>[π<sub>t</sub>] + u<sub>t</sub>;
+  previsione corretta se a = 0 e b = 1.
+- Il T-bill fallisce quando i tassi sono fermi a zero; il modello AR è il più
+  preciso a un mese.
+- **Misure diverse = misure rumorose della stessa variabile non osservata.**
+
+## Risultati: errori standard di Newey-West
+
+```{r}
+tab_fs_testo
+```
+
+- Stime **negative**: l'opposto di quanto prevede l'ipotesi di Fisher.
+- Copertura completa **rifiutata** su tutto il campione (p =
+  `r fp(tab_fs$p_copertura[1])`); dal 1978 le stime sono imprecise.
+- R<sup>2</sup> ≈ 1%: l'inflazione spiega poco dei rendimenti mensili.
+
+## Le stime sono lontane da 1
+
+```{r}
+p_coef
+```
+
+## Una relazione instabile
+
+```{r}
+tab_sotto |>
+  transmute(Campione,
+            `beta (attesa)`    = paste0(f2(beta),  " (", f2(se_beta),  ")"),
+            `gamma (inattesa)` = paste0(f2(gamma), " (", f2(se_gamma), ")"),
+            `p: gamma = 0` = fp(p_gamma), N)
+```
+
+- Test con dummy dal 2000: γ aumenta di
+  `r f2(ct_rottura["inattesa:dopo2000", 1])` (p =
+  `r fp(ct_rottura["inattesa:dopo2000", 4])`).
+- Attenzione: scegliere la data guardando i dati gonfia la significatività
+  (test di Andrews negli esercizi).
+
+## Il segno cambia nel tempo
+
+```{r}
+p_rolling
+```
+
+## Perché? Inflazione "buona" e "cattiva"
+
+- Boons et al. (2020): conta che cosa l'inflazione segnala sulla crescita
+  reale futura. Prima: cattiva notizia. Primi anni Duemila: buona notizia.
+- Cieslak e Pflueger (2023): inflazione da domanda ("buona") contro
+  inflazione da shock di offerta ("cattiva").
+
+**Ipotesi proxy di Fama (1981):** la crescita futura è una variabile omessa.
+
+```{r}
+tab_proxy
+```
+
+## Settori: la prova fuori campione del 2021-22
+
+```{r}
+p_ind
+```
+
+## Una sola osservazione può fare la correlazione
+
+| Correlazione tra gamma 1953-2020 e rendimento reale 2021-22 | |
+|---|---|
+| Pearson | `r f2(cor_ind[["pearson"]])` |
+| Spearman (ranghi) | `r f2(cor_ind[["spearman"]])` |
+| Spearman senza l'energia | `r f2(cor_ind[["spearman_senza_energia"]])` |
+
+- L'energia è l'unico settore con γ > 0 ed è stato il migliore nel
+  2021-22.
+- Fuori dall'energia, la sensibilità storica non ha previsto nulla.
+
+## Cosa portare a casa
+
+1. Le azioni USA **non** hanno protetto dall'inflazione: coefficienti negativi,
+   copertura completa rifiutata.
+2. L'inflazione attesa non si osserva: la misura scelta è parte del modello.
+3. La relazione **cambia segno**: conta il tipo di inflazione.
+4. Il segno negativo dipende in parte da una **variabile omessa** (la crescita
+   futura).
+5. Ogni stima storica va messa alla prova **fuori campione**.
+
+<br>
+
+Lezione completa, codice ed esercizi: `lezione.html`, `R/`, `README.md`.
